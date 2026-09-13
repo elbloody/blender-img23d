@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  lint-and-unit:
+    name: Lint et tests unitaires
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Installer ruff
+        run: pip install ruff==0.15.8
+
+      - name: Lint
+        run: ruff check --select F,E9,B,SIM .
+
+      - name: Vérifier le manifeste de l'extension
+        run: |
+          python - <<'PY'
+          import tomllib, pathlib
+          manifest = tomllib.loads(pathlib.Path("blender_manifest.toml").read_text())
+          for key in ("schema_version", "id", "version", "name", "tagline",
+                      "maintainer", "type", "license", "blender_version_min"):
+              assert manifest.get(key), f"clé de manifeste manquante : {key}"
+          tagline = manifest["tagline"]
+          assert len(tagline) <= 64, f"tagline trop longue ({len(tagline)} > 64)"
+          assert not tagline.endswith("."), "la tagline ne doit pas finir par un point"
+          assert manifest["type"] == "add-on", manifest["type"]
+          print(f"manifeste valide : {manifest['name']} {manifest['version']}")
+          PY
+
+      - name: Tests unitaires (sans Blender)
+        run: python -m unittest discover -s tests -t . -v
+
+  integration:
+    name: Tests d'intégration dans Blender
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Installer Blender sous forme de module Python
+        run: pip install bpy==4.2.0
+
+      - name: Installer l'extension et dérouler la chaîne complète
+        run: python tests/blender/test_integration.py

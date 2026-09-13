@@ -1,0 +1,24 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Artefacts de build de l'extension
+*.zip
+build/
+dist/
+
+# Secrets : jamais commités (clés API, token Kaggle)
+kaggle.json
+.env
+*.secret
+img23d_config.json
+
+# Sorties de génération / tests locaux
+out/
+tmp/
+.cache/
+
+# Ressources créées par le module pip `bpy` au lancement des tests
+/4.2/

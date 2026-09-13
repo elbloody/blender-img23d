@@ -1,0 +1,33 @@
+schema_version = "1.0.0"
+
+id = "img23d"
+version = "0.1.0"
+name = "Image → 3D"
+tagline = "Génère un maillage 3D imprimable depuis une ou plusieurs images"
+maintainer = "elbloody"
+type = "add-on"
+
+website = "https://github.com/elbloody/blender-img23d"
+
+tags = ["3D View", "Import-Export", "Mesh", "Pipeline"]
+
+blender_version_min = "4.2.0"
+
+license = ["SPDX:GPL-3.0-or-later"]
+
+# L'extension ne parle jamais à un service en dur : elle contacte uniquement
+# le backend que l'utilisateur a configuré lui-même dans les préférences.
+[permissions]
+network = "Envoyer les images au backend de génération configuré par l'utilisateur"
+files = "Lire les images sources, écrire les maillages générés (GLB) et les exports (STL/OBJ)"
+
+[build]
+paths_exclude_pattern = [
+  "__pycache__/",
+  ".git/",
+  ".github/",
+  "tests/",
+  "docs/",
+  "*.zip",
+  ".gitignore",
+]
