@@ -100,6 +100,10 @@ récupère le GLB avec `kaggle kernels output`. Aucun tunnel, aucune session à
 garder ouverte — c'est ce qui rend Kaggle plus fiable que Colab pour de
 l'automatisation.
 
+Le kernel installe lui-même Hunyuan3D en clonant son dépôt : `hy3dgen` n'est
+pas publié sur PyPI. Ces commandes sont surchargeables via la clé
+`setup_commands` si le dépôt amont bouge.
+
 ### API cloud — Meshy, Tripo, Rodin
 
 Choisis le fournisseur, colle ta clé d'API. Le champ *Point d'entrée* permet de

@@ -140,6 +140,37 @@ class TestKaggleGeneration(KaggleCase):
         self.assertEqual([image["view"] for image in job["images"]], ["FRONT", "BACK"])
         self.assertEqual(base64.b64decode(job["images"][0]["data"]), b"AVANT")
 
+    def test_kernel_installs_hunyuan_from_its_repository(self):
+        """`hy3dgen` n'est pas sur PyPI : il doit être cloné, pas pip-installé.
+
+        Un `pip install hy3dgen` part sans erreur visible et échoue vingt
+        minutes plus tard, sur Kaggle, par un « No module named hy3dgen ».
+        """
+        self.backend().generate(self.request(), RecordingContext())
+        script = (self.directory / "img23d_kernel.py").read_text()
+        encoded = script.split('b64decode("')[1].split('")')[0]
+        setup = json.loads(base64.b64decode(encoded))["setup"]
+
+        joint = " ; ".join(setup)
+        self.assertIn("git clone", joint)
+        self.assertIn("Hunyuan3D-2", joint)
+        self.assertNotIn("pip install -q hy3dgen", joint)
+        self.assertNotRegex(joint, r"pip install[^;]*\bhy3dgen\b")
+
+    def test_kernel_stops_when_the_setup_fails(self):
+        """Une installation ratée doit arrêter le kernel, pas le laisser courir."""
+        self.backend().generate(self.request(), RecordingContext())
+        script = (self.directory / "img23d_kernel.py").read_text()
+        self.assertIn("returncode != 0", script)
+        self.assertIn("SystemExit", script)
+
+    def test_inputs_are_written_outside_the_output_directory(self):
+        """/kaggle/working est rapatrié en entier : n'y mettons que le résultat."""
+        self.backend().generate(self.request(), RecordingContext())
+        script = (self.directory / "img23d_kernel.py").read_text()
+        entrees = script.split("ENTREES = pathlib.Path(")[1].split(")")[0]
+        self.assertNotIn("/kaggle/working", entrees)
+
     def test_generated_kernel_is_valid_python(self):
         """Un kernel mal formaté échouerait 20 minutes plus tard, côté Kaggle."""
         import ast

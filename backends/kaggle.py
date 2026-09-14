@@ -42,23 +42,51 @@ MAX_EMBEDDED_BYTES = 8 * 1024 * 1024
 
 SLUG_RE = re.compile(r"^[a-z0-9-]+/[a-z0-9-]+$")
 
+#: Préparation de l'environnement Kaggle, exécutée en tête de kernel.
+#:
+#: `hy3dgen` n'existe pas sur PyPI : c'est le paquet Python *contenu dans* le
+#: dépôt Hunyuan3D-2. Il faut donc cloner puis installer le dépôt — un simple
+#: `pip install hy3dgen` échouerait avec « No module named hy3dgen ».
+#: Le clone va dans /tmp et non dans /kaggle/working, sinon tout le dépôt
+#: serait rapatrié avec le maillage.
+DEFAULT_SETUP = [
+    "pip install -q trimesh rembg onnxruntime",
+    "git clone --depth 1 https://github.com/Tencent-Hunyuan/Hunyuan3D-2.git /tmp/hunyuan3d",
+    "pip install -q -e /tmp/hunyuan3d",
+]
+
 KERNEL_TEMPLATE = '''"""Kernel généré par l'extension Blender img23d. Ne pas éditer à la main."""
 import base64
 import json
-import os
 import pathlib
+import subprocess
+import sys
 
 JOB = json.loads(base64.b64decode("{job_b64}").decode("utf-8"))
 OUT = pathlib.Path("/kaggle/working")
 OUT.mkdir(parents=True, exist_ok=True)
 
+# Les images d'entrée restent hors de /kaggle/working : ce dossier est
+# rapatrié en entier, inutile de redescendre ce qu'on vient d'envoyer.
+ENTREES = pathlib.Path("/tmp/img23d_entrees")
+ENTREES.mkdir(parents=True, exist_ok=True)
+
 image_paths = []
 for index, entry in enumerate(JOB["images"]):
-    path = OUT / f"input_{{index:02d}}_{{entry['view'].lower()}}{{entry['ext']}}"
+    path = ENTREES / f"input_{{index:02d}}_{{entry['view'].lower()}}{{entry['ext']}}"
     path.write_bytes(base64.b64decode(entry["data"]))
     image_paths.append((entry["view"].upper(), path))
 
-os.system("pip install -q {pip_packages}")
+for commande in JOB["setup"]:
+    print("[img23d] $", commande, flush=True)
+    termine = subprocess.run(commande, shell=True)
+    if termine.returncode != 0:
+        raise SystemExit(
+            "[img23d] Preparation de l'environnement echouee (code %s) : %s"
+            % (termine.returncode, commande)
+        )
+
+sys.path.insert(0, "/tmp/hunyuan3d")
 
 import torch
 from PIL import Image
@@ -260,10 +288,10 @@ class KaggleBackend(Backend):
             "remove_background": request.remove_background,
             "with_texture": request.with_texture,
             "model_repo": str(self.cfg("model_repo", "tencent/Hunyuan3D-2mini")),
+            "setup": list(self.cfg("setup_commands", DEFAULT_SETUP)),
         }
         script = KERNEL_TEMPLATE.format(
-            job_b64=base64.b64encode(json.dumps(job).encode("utf-8")).decode("ascii"),
-            pip_packages=str(self.cfg("pip_packages", "hy3dgen trimesh rembg onnxruntime")),
+            job_b64=base64.b64encode(json.dumps(job).encode("utf-8")).decode("ascii")
         )
         (workdir / "img23d_kernel.py").write_text(script, encoding="utf-8")
 
