@@ -157,6 +157,14 @@ blender --command extension build --source-dir . --output-dir dist
 Le manifeste exclut déjà `tests/`, `.github/` et les `__pycache__` de
 l'archive.
 
+## Reprendre le travail en local
+
+[`docs/reprise-locale.md`](docs/reprise-locale.md) est une note de passation
+destinée à un agent travaillant directement sur la machine de l'utilisateur :
+état exact du projet, blocage en cours et arbre de décision, bugs déjà
+corrigés à ne pas rechercher, et frontière entre ce qui est vérifié et ce qui
+ne l'est pas.
+
 ## Développement
 
 ```bash
