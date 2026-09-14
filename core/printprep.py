@@ -84,6 +84,44 @@ class PrepOptions:
     steps: list[str] = field(default_factory=list)
 
 
+#: Au-delà de ce nombre de voxels sur le plus grand côté, le remesh produit
+#: des dizaines de millions de triangles et fige Blender plusieurs minutes.
+#: Un usage normal — figurine de 80 mm, voxel de 0,5 à 0,8 mm — en demande
+#: 100 à 160 ; un modèle importé sans mise à l'échelle en demande des milliers.
+MAX_REMESH_RESOLUTION = 1000
+
+
+class RemeshTooFine(ValueError):
+    """Le couple taille du modèle / taille de voxel est intenable."""
+
+
+def remesh_resolution(obj: bpy.types.Object, voxel_size_mm: float, unit_scale: float = 1000.0) -> float:
+    """Estimation du nombre de voxels sur le plus grand côté.
+
+    Lit ``obj.dimensions``, donc en temps constant : c'est ce qu'il faut dans
+    un ``draw()``. En contrepartie cette valeur est celle du dernier calcul du
+    depsgraph, donc périmée juste après une modification du maillage — pour
+    une décision, utiliser :func:`largest_dimension_mm`.
+    """
+    if obj is None or obj.type != "MESH" or voxel_size_mm <= 0.0:
+        return 0.0
+    return (max(obj.dimensions) * unit_scale) / voxel_size_mm
+
+
+def largest_dimension_mm(obj: bpy.types.Object, unit_scale: float = 1000.0) -> float:
+    """Plus grand côté de l'objet, mesuré sur sa géométrie.
+
+    Contrairement à ``obj.dimensions``, cette mesure est exacte même juste
+    après une mise à l'échelle, avant toute réévaluation du depsgraph.
+    """
+    if obj is None or obj.type != "MESH" or obj.data is None or not obj.data.vertices:
+        return 0.0
+    coords = [obj.matrix_world @ vertex.co for vertex in obj.data.vertices]
+    return unit_scale * max(
+        max(co[axis] for co in coords) - min(co[axis] for co in coords) for axis in range(3)
+    )
+
+
 def analyze(obj: bpy.types.Object, unit_scale: float = 1.0) -> MeshReport:
     """Analyse le maillage sans le modifier. ``unit_scale`` : mètres → millimètres."""
     if obj is None or obj.type != "MESH" or obj.data is None:
@@ -152,6 +190,19 @@ def prepare(
     metres_per_mm = 1.0 / unit_scale
 
     if options.remesh and options.voxel_size_mm > 0.0:
+        largest_mm = largest_dimension_mm(obj, unit_scale)
+        resolution = largest_mm / options.voxel_size_mm
+        if resolution > MAX_REMESH_RESOLUTION:
+            minimum = largest_mm / MAX_REMESH_RESOLUTION
+            raise RemeshTooFine(
+                f"Remesh impossible : {resolution:.0f} voxels sur le plus grand côté "
+                f"({largest_mm:.0f} mm à {options.voxel_size_mm:g} mm de voxel). "
+                f"Blender y passerait de longues minutes pour des dizaines de "
+                f"millions de triangles. Deux solutions : mets d'abord le modèle "
+                f"à sa taille réelle avec « Mettre à la taille cible », ou monte "
+                f"la taille de voxel à {minimum:.2g} mm au minimum."
+            )
+
         voxel = options.voxel_size_mm * metres_per_mm
         _apply_voxel_remesh(context, obj, voxel, options.remesh_adaptivity)
         steps.append(f"Remesh voxel à {options.voxel_size_mm:g} mm")

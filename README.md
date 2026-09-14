@@ -136,6 +136,12 @@ détail : en dessous de 0,4 mm (buse standard), tu ajoutes des triangles que
 l'imprimante ne saura pas restituer. Pour une figurine de 80 mm, 0,5 à 0,8 mm
 est un bon compromis.
 
+**Mets le modèle à sa taille réelle avant de remesher.** Un modèle généré
+arrive à l'échelle Blender brute, souvent plusieurs mètres : le remesher à
+0,8 mm demanderait des milliers de voxels par côté et des dizaines de millions
+de triangles. Le panneau affiche le nombre de voxels par côté avant que tu ne
+cliques, et la préparation refuse au-delà de mille en expliquant quoi faire.
+
 La texture, elle, ne s'imprime pas. L'option *Générer la texture* existe pour
 le rendu et la prévisualisation ; pour une pièce destinée au slicer, laisse-la
 décochée : c'est du temps de génération en moins.
@@ -159,6 +165,14 @@ python -m unittest discover -s tests -t .
 
 # Tests d'intégration — installent l'extension dans un vrai Blender
 blender --background --python tests/blender/test_integration.py
+```
+
+La suite d'intégration passe sur Blender 4.2 et 5.0. Pour la rejouer sur une
+version donnée sans installer Blender, le module pip suffit :
+
+```bash
+python -m venv /tmp/bpy5 && /tmp/bpy5/bin/pip install bpy==5.0.1
+/tmp/bpy5/bin/python tests/blender/test_integration.py
 ```
 
 Les tests d'intégration couvrent la chaîne complète : préparation des images

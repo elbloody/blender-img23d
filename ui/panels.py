@@ -12,6 +12,7 @@ from pathlib import Path
 from bpy.types import Panel
 
 from ..backends import get_backend_class
+from ..core import printprep as prep
 from ..ops._job_modal import is_busy
 from ..preferences import resolve_backend_id
 
@@ -208,6 +209,20 @@ class IMG23D_PT_print(Img23DPanel, Panel):
         sub.enabled = settings.use_remesh
         sub.prop(settings, "voxel_size_mm", text="Voxel (mm)")
         sub.prop(settings, "remesh_adaptivity")
+
+        # Le coût du remesh se voit avant de cliquer, pas après trois minutes
+        # de gel. L'estimation vient de la boîte englobante : rien de coûteux
+        # n'a sa place dans un draw().
+        if settings.use_remesh:
+            resolution = prep.remesh_resolution(context.active_object, settings.voxel_size_mm)
+            if resolution > 0.0:
+                ligne = column.column(align=True)
+                ligne.scale_y = 0.8
+                if resolution > prep.MAX_REMESH_RESOLUTION:
+                    ligne.label(text=f"{resolution:.0f} voxels par côté : trop fin", icon="ERROR")
+                    ligne.label(text="Mets le modèle à sa taille cible d'abord.", icon="BLANK1")
+                else:
+                    ligne.label(text=f"≈ {resolution:.0f} voxels par côté", icon="INFO")
 
         column.separator()
         column.prop(settings, "use_repair")

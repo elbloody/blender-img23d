@@ -381,10 +381,73 @@ class TestOperators(IntegrationCase):
         self.assertTrue(self.state.mesh_watertight, "une UV-sphere est fermée")
 
     def test_prepare_print_keeps_the_mesh_watertight(self):
+        # À la taille d'une vraie pièce imprimée, comme le ferait n'importe qui.
+        self.settings.target_size_mm = 80.0
+        bpy.ops.img23d.scale_to_size()
+
         self.settings.use_remesh = True
-        self.settings.voxel_size_mm = 2.0
+        self.settings.voxel_size_mm = 0.8
         self.assertEqual(bpy.ops.img23d.prepare_print(), {"FINISHED"})
         self.assertTrue(self.state.mesh_watertight)
+
+        from bl_ext.user_default.img23d.core import printprep
+
+        rapport = printprep.analyze(self.obj, unit_scale=1000.0)
+        self.assertLess(rapport.triangles, 1_000_000, "un maillage imprimable, pas un monstre")
+
+    def test_a_runaway_remesh_is_refused_with_a_way_out(self):
+        """Un modèle à l'échelle Blender brute demande des milliers de voxels.
+
+        Sans garde-fou, Blender part pour plusieurs minutes de calcul et des
+        dizaines de millions de triangles — sur un modèle qu'il suffisait de
+        redimensionner d'abord.
+        """
+        from bl_ext.user_default.img23d.core import printprep
+
+        # L'objet fait 2 m : c'est l'échelle à laquelle arrive un modèle importé.
+        resolution = printprep.remesh_resolution(self.obj, 0.8)
+        self.assertGreater(resolution, printprep.MAX_REMESH_RESOLUTION)
+
+        self.settings.use_remesh = True
+        self.settings.voxel_size_mm = 0.8
+        # Blender transforme le rapport d'erreur d'un opérateur en exception
+        # quand on l'appelle depuis un script.
+        with self.assertRaises(RuntimeError) as refus:
+            bpy.ops.img23d.prepare_print()
+        self.assertIn("Remesh impossible", str(refus.exception))
+
+        options = printprep.PrepOptions(remesh=True, voxel_size_mm=0.8)
+        with self.assertRaises(printprep.RemeshTooFine) as leve:
+            printprep.prepare(bpy.context, self.obj, options)
+        message = str(leve.exception)
+        self.assertIn("Mettre à la taille cible", message)
+        self.assertRegex(message, r"monte la taille de voxel à [\d.,]+ mm")
+
+    def test_the_decision_does_not_use_a_stale_dimension(self):
+        """obj.dimensions n'est rafraîchi qu'à l'évaluation suivante.
+
+        S'y fier ferait refuser un remesh parfaitement raisonnable sur un
+        modèle qu'on vient justement de mettre à la bonne taille.
+        """
+        from bl_ext.user_default.img23d.core import printprep, scene as scene_utils
+
+        scene_utils.scale_to_height(self.obj, 0.080)  # sans view_layer.update()
+
+        self.assertAlmostEqual(printprep.largest_dimension_mm(self.obj), 80.0, places=2)
+        options = printprep.PrepOptions(remesh=True, voxel_size_mm=1.0, repair=False)
+        printprep.prepare(bpy.context, self.obj, options)  # ne doit pas lever
+
+    def test_a_reasonable_remesh_is_allowed(self):
+        self.settings.target_size_mm = 200.0
+        bpy.ops.img23d.scale_to_size()
+
+        from bl_ext.user_default.img23d.core import printprep
+
+        self.assertLess(
+            printprep.remesh_resolution(self.obj, 0.3),
+            printprep.MAX_REMESH_RESOLUTION,
+            "une pièce de 200 mm au voxel de 0,3 mm reste légitime",
+        )
 
     def test_export_does_not_overwrite_silently(self):
         self.settings.export_name = "piece"
