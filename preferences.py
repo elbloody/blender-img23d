@@ -104,9 +104,9 @@ class Img23DPreferences(AddonPreferences):
     kaggle_api_token: StringProperty(
         name="Jeton d'API",
         description=(
-            "Le jeton affiché par Kaggle dans Settings ▸ API Tokens. "
-            "Il commence par KGAT_. C'est la seule chose à remplir : il porte "
-            "aussi ton identité"
+            "Facultatif. Laisse vide si tu t'es connecté avec « kaggle auth login » : "
+            "un jeton renseigné ici est essayé en premier et masquerait cette session. "
+            "Sinon, le jeton de Settings ▸ API Tokens, qui commence par KGAT_"
         ),
         subtype="PASSWORD",
         default="",
@@ -213,11 +213,17 @@ class Img23DPreferences(AddonPreferences):
         box.label(text="Kaggle Kernels", icon="CONSOLE")
         column = box.column()
         column.prop(self, "kaggle_cli")
+        note = box.column(align=True)
+        note.scale_y = 0.8
+        note.label(text="Le plus simple : dans un terminal, lance", icon="INFO")
+        note.label(text=f"    {self.kaggle_cli or 'kaggle'} auth login")
+        note.label(text="et connecte-toi dans le navigateur. Rien d'autre à remplir.")
+        column = box.column()
         column.prop(self, "kaggle_api_token")
         note = box.column(align=True)
         note.scale_y = 0.8
-        note.label(text="Le jeton se copie sur kaggle.com ▸ Settings ▸ API Tokens", icon="INFO")
-        note.label(text="▸ Generate New Token. Il commence par KGAT_.")
+        note.label(text="Ce champ n'est utile que sans « auth login ». S'il est", icon="BLANK1")
+        note.label(text="rempli, il passe avant la session du navigateur.")
         column = box.column()
         column.prop(self, "kaggle_username")
         column.prop(self, "kaggle_api_key")

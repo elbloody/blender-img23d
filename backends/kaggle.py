@@ -212,10 +212,13 @@ class KaggleBackend(Backend):
         if str(self.cfg("username", "") or "").strip() and str(self.cfg("api_key", "") or "").strip():
             sources.append("utilisateur + clé (préférences)")
         directory = _config_dir()
-        if (directory / "kaggle.json").is_file():
-            sources.append(f"{directory / 'kaggle.json'}")
-        if (directory / "access_token").is_file():
-            sources.append(f"{directory / 'access_token'}")
+        for nom, description in (
+            ("credentials.json", "session ouverte par « kaggle auth login »"),
+            ("access_token", "jeton dans ~/.kaggle/access_token"),
+            ("kaggle.json", "ancien fichier ~/.kaggle/kaggle.json"),
+        ):
+            if (directory / nom).is_file():
+                sources.append(description)
         return sources
 
     def _username_from_cli(self) -> str:
@@ -254,13 +257,10 @@ class KaggleBackend(Backend):
                 "Installe-le hors de Blender : pip install --user kaggle",
             )
 
+        # On n'énumère plus les identifiants pour décider d'essayer ou non :
+        # Kaggle en a déjà changé deux fois, et une liste sera toujours en
+        # retard. On laisse le CLI trancher, et on rapporte ce qu'il dit.
         sources = self._credential_sources()
-        if not sources:
-            return BackendStatus.failure(
-                "Aucune identification Kaggle",
-                "Colle ton jeton d'API (il commence par KGAT_) dans le champ « Jeton d'API ».",
-                "Ou, avec l'ancien système : utilisateur + clé, ou ~/.kaggle/kaggle.json.",
-            )
 
         try:
             completed = subprocess.run(
@@ -274,23 +274,26 @@ class KaggleBackend(Backend):
         except (OSError, subprocess.TimeoutExpired) as exc:
             return BackendStatus.failure("Appel du CLI Kaggle impossible", str(exc))
 
-        if completed.returncode != 0:
+        if completed.returncode != 0 or "Authentication required" in completed.stdout:
             # La cause peut être une clé invalide comme une panne réseau : on
             # ne préjuge pas, on montre ce que le CLI a dit.
             detail = (completed.stderr or completed.stdout).strip()
-            indice = (
-                "Vérifie ton nom d'utilisateur et ta clé d'API."
-                if "401" in detail or "403" in detail or "credential" in detail.lower()
-                else "Vérifie ta connexion et tes identifiants."
-            )
+            if not sources or "Authentication required" in detail:
+                indice = (
+                    f"Aucune identification trouvée. Le plus simple : ouvre un terminal "
+                    f"et lance « {self.cli} auth login », puis connecte-toi dans le navigateur."
+                )
+            elif any(code in detail for code in ("401", "403")) or "credential" in detail.lower():
+                indice = "Identifiants refusés : le jeton a peut-être expiré ou été régénéré."
+            else:
+                indice = "Vérifie ta connexion réseau."
             return BackendStatus.failure(
-                "Le CLI Kaggle n'a pas abouti", detail[:200], indice
+                "Le CLI Kaggle n'a pas abouti", detail[:300], indice
             )
 
-        details = [
-            f"Identifié comme {self.username or 'utilisateur Kaggle'}",
-            f"Source : {sources[0]}",
-        ]
+        details = [f"Identifié comme {self.username or 'utilisateur Kaggle'}"]
+        if sources:
+            details.append(f"Source : {sources[0]}")
         try:
             details.append(f"Kernel cible : {self.slug}")
         except BackendError as exc:

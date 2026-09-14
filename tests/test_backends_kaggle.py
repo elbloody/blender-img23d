@@ -63,6 +63,12 @@ sys.stderr.write("401 - Unauthorized\\n")
 sys.exit(1)
 '''
 
+#: Ce que rend le vrai CLI quand il ne trouve aucun identifiant : un code de
+#: retour nul, mais un texte explicite sur la sortie standard.
+NO_CREDENTIALS_CLI = '''
+print("Authentication required to call the Kaggle API.")
+'''
+
 
 class KaggleCase(unittest.TestCase):
     def setUp(self):
@@ -255,7 +261,7 @@ class TestKaggleGeneration(KaggleCase):
         """
         status = self.backend(auth).check()
         self.assertFalse(status.ok)
-        self.assertTrue(any("clé d'API" in detail for detail in status.details))
+        self.assertTrue(any("Identifiants refusés" in detail for detail in status.details))
 
 
 #: Faux CLI imitant le nouveau système : le jeton porte l'identité, que le
@@ -337,7 +343,7 @@ class TestKaggleApiToken(KaggleCase):
     def test_an_invalid_token_is_reported(self):
         status = self.token_backend(api_token="pas-un-jeton").check()
         self.assertFalse(status.ok)
-        self.assertTrue(any("clé d'API" in detail for detail in status.details))
+        self.assertTrue(any("Identifiants refusés" in detail for detail in status.details))
 
     def test_check_names_the_credential_source(self):
         status = self.token_backend().check()
@@ -350,10 +356,31 @@ class TestKaggleConfiguration(KaggleCase):
         self.assertFalse(status.ok)
         self.assertIn("introuvable", status.message)
 
-    def test_check_without_credentials(self):
-        status = create_backend("KAGGLE", {"cli_path": str(self.cli())}).check()
+    def test_check_without_credentials_points_to_the_browser_login(self):
+        """Sans identifiants, la route la plus simple est « kaggle auth login ».
+
+        Elle n'exige aucun jeton à recopier — donc rien à abîmer en le collant.
+        """
+        cli = self.cli(NO_CREDENTIALS_CLI)
+        status = create_backend("KAGGLE", {"cli_path": str(cli)}).check()
         self.assertFalse(status.ok)
-        self.assertIn("identification", status.message.lower())
+        self.assertTrue(any("auth login" in detail for detail in status.details))
+
+    def test_oauth_session_is_recognised(self):
+        """« kaggle auth login » range sa session dans ~/.kaggle/credentials.json.
+
+        Énumérer les fichiers connus pour décider d'essayer ou non refusait
+        cette session : Kaggle a déjà changé de mécanisme deux fois.
+        """
+        config = self.directory / "config"
+        config.mkdir(exist_ok=True)
+        (config / "credentials.json").write_text('{"access_token": "x"}')
+        os.environ["KAGGLE_CONFIG_DIR"] = str(config)
+
+        backend = create_backend("KAGGLE", {"cli_path": str(self.cli()), "username": "moi"})
+        status = backend.check()
+        self.assertTrue(status.ok, status.message)
+        self.assertTrue(any("auth login" in detail for detail in status.details))
 
     def test_check_succeeds_with_credentials(self):
         status = self.backend().check()
