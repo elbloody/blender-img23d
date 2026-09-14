@@ -27,7 +27,6 @@ import tempfile
 import time
 from pathlib import Path
 
-from . import hostexec
 from .base import (
     Backend,
     BackendError,
@@ -36,6 +35,12 @@ from .base import (
     BackendUnavailable,
     GenerationRequest,
     GenerationResult,
+)
+from .hostexec import (
+    child_env,
+    host_command,
+    python_module_command,
+    sandbox_hint,
 )
 
 #: Kaggle refuse les sources de kernel trop volumineuses ; on garde une marge.
@@ -206,7 +211,7 @@ class KaggleBackend(Backend):
 
         On transmet ce dont on dispose, sans en privilégier un.
         """
-        env = hostexec.child_env()
+        env = child_env()
 
         token = str(self.cfg("api_token", "") or "").strip()
         if token:
@@ -268,7 +273,7 @@ class KaggleBackend(Backend):
             # Sous Flatpak, « introuvable » veut souvent dire « invisible depuis
             # le bac à sable » plutôt que « pas installé » : le dire évite une
             # réinstallation inutile.
-            indice = hostexec.sandbox_hint("le CLI Kaggle")
+            indice = sandbox_hint("le CLI Kaggle")
             if indice:
                 return BackendStatus.failure(
                     f"CLI Kaggle invisible depuis Blender ({self.cli})", indice
@@ -315,12 +320,12 @@ class KaggleBackend(Backend):
             elif any(code in detail for code in ("401", "403")) or "credential" in detail.lower():
                 indice = "Identifiants refusés : le jeton a peut-être expiré ou été régénéré."
             elif "ModuleNotFoundError" in detail or "No module named" in detail:
-                indice = hostexec.sandbox_hint("le CLI Kaggle") or (
+                indice = sandbox_hint("le CLI Kaggle") or (
                     "Le CLI a démarré mais ne trouve pas ses modules : son "
                     "environnement Python est incomplet. Réinstalle-le."
                 )
             else:
-                indice = hostexec.sandbox_hint("le CLI Kaggle") or "Vérifie ta connexion réseau."
+                indice = sandbox_hint("le CLI Kaggle") or "Vérifie ta connexion réseau."
             return BackendStatus.failure(
                 "Le CLI Kaggle n'a pas abouti", detail[:300], indice
             )
@@ -480,9 +485,9 @@ class KaggleBackend(Backend):
         l'interpréteur du venv directement. Et sous Flatpak, on demande à
         l'hôte d'exécuter la commande.
         """
-        direct = hostexec.python_module_command(self.cli, "kaggle")
+        direct = python_module_command(self.cli, "kaggle")
         base = direct if direct else [self.cli]
-        return hostexec.host_command([*base, *args])
+        return host_command([*base, *args])
 
     def _run(self, args: list[str], timeout: float) -> str:
         command = self._command(args)

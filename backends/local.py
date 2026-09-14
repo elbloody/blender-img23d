@@ -19,7 +19,6 @@ import tempfile
 import threading
 from pathlib import Path
 
-from . import hostexec
 from .base import (
     Backend,
     BackendError,
@@ -28,6 +27,7 @@ from .base import (
     GenerationRequest,
     GenerationResult,
 )
+from .hostexec import child_env
 
 #: Préfixes du protocole ligne-à-ligne parlé par ``local_worker.py``.
 PROGRESS_PREFIX = "@@IMG23D_PROGRESS "
@@ -115,7 +115,7 @@ class LocalBackend(Backend):
 
             # Purge PYTHONHOME/PYTHONPATH : hérités de Blender, ils
             # détourneraient l'interpréteur du worker vers celui de Blender.
-            env = hostexec.child_env()
+            env = child_env()
             env.setdefault("PYTHONUNBUFFERED", "1")
             env.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
             cache_dir = str(self.cfg("cache_dir", "") or "")
