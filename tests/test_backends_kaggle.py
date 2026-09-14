@@ -41,7 +41,9 @@ if args[:2] == ["kernels", "push"]:
     print("Kernel version 1 successfully pushed.")
 elif args[:2] == ["kernels", "status"]:
     n = sum(1 for c in calls if c[:2] == ["kernels", "status"])
-    print('%s has status "%s"' % (args[2], "running" if n < 2 else "complete"))
+    # Format du vrai CLI 2.2.x, vérifié dans son code source.
+    etat = "RUNNING" if n < 2 else "COMPLETE"
+    print('%s has status "KernelWorkerStatus.%s"' % (args[2], etat))
 elif args[:2] == ["kernels", "output"]:
     out = pathlib.Path(args[args.index("-p") + 1])
     out.mkdir(parents=True, exist_ok=True)
@@ -187,7 +189,7 @@ class TestKaggleGeneration(KaggleCase):
         pathlib.Path(__file__).with_suffix(".env.json").write_text(
             '{"u": "%s", "k": "%s"}' % (os.environ.get("KAGGLE_USERNAME"),
                                         os.environ.get("KAGGLE_KEY")))
-        print('ref has status "complete"')
+        print('ref has status "KernelWorkerStatus.COMPLETE"')
         '''
         backend = self.backend(source, username="alice", api_key="cle-secrete")
         # Ce faux CLI ne rend aucun maillage : seul l'environnement nous intéresse.
@@ -208,7 +210,7 @@ class TestKaggleGeneration(KaggleCase):
         import pathlib, sys
         args = sys.argv[1:]
         if args[:2] == ["kernels", "status"]:
-            print('ref has status "complete"')
+            print('ref has status "KernelWorkerStatus.COMPLETE"')
         elif args[:2] == ["kernels", "output"]:
             out = pathlib.Path(args[args.index("-p") + 1]); out.mkdir(parents=True, exist_ok=True)
             (out / "log.txt").write_text("CUDA out of memory")
@@ -221,7 +223,7 @@ class TestKaggleGeneration(KaggleCase):
         source = '''
         import sys
         if sys.argv[1:3] == ["kernels", "status"]:
-            print('ref has status "error"')
+            print('ref has status "KernelWorkerStatus.ERROR"')
         '''
         with self.assertRaises(BackendError) as caught:
             self.backend(source).generate(self.request(), RecordingContext())
@@ -231,6 +233,29 @@ class TestKaggleGeneration(KaggleCase):
         with self.assertRaises(BackendError) as caught:
             self.backend(FAILING_CLI).generate(self.request(), RecordingContext())
         self.assertIn("401", str(caught.exception))
+
+    def test_check_does_not_blame_credentials_for_a_network_error(self):
+        """Un « identifiants refusés » sur une panne réseau égare l'utilisateur."""
+        reseau = r"""
+        import sys
+        sys.stderr.write("Max retries exceeded with url: /v1/kernels (Connection refused)\n")
+        sys.exit(1)
+        """
+        status = self.backend(reseau).check()
+        self.assertFalse(status.ok)
+        self.assertNotIn("refusée", status.message)
+        self.assertTrue(any("Max retries" in detail for detail in status.details))
+        self.assertTrue(any("connexion" in detail for detail in status.details))
+
+    def test_check_blames_credentials_on_an_auth_error(self):
+        auth = r"""
+        import sys
+        sys.stderr.write("401 Unauthorized\n")
+        sys.exit(1)
+        """
+        status = self.backend(auth).check()
+        self.assertFalse(status.ok)
+        self.assertTrue(any("clé d'API" in detail for detail in status.details))
 
 
 class TestKaggleConfiguration(KaggleCase):
@@ -259,10 +284,24 @@ class TestKaggleConfiguration(KaggleCase):
             create_backend("KAGGLE", {"username": "Alice"}).slug, "alice/img23d-worker"
         )
 
-    def test_status_parsing(self):
-        self.assertEqual(_parse_status('ref has status "complete"'), "complete")
-        self.assertEqual(_parse_status("has status running"), "running")
-        self.assertEqual(_parse_status("sortie inattendue"), "")
+    def test_status_parsing_accepts_both_cli_formats(self):
+        """Les deux formats circulent selon la version du CLI Kaggle.
+
+        Ne pas reconnaître « KernelWorkerStatus.COMPLETE » ferait attendre
+        l'utilisateur jusqu'au délai maximum sur un kernel déjà terminé.
+        """
+        cas = {
+            'ref has status "complete"': "complete",
+            'ref has status "KernelWorkerStatus.COMPLETE"': "complete",
+            'ref has status "KernelWorkerStatus.ERROR"': "error",
+            'ref has status "KernelWorkerStatus.QUEUED"': "queued",
+            'ref has status "KernelWorkerStatus.CANCEL_ACKNOWLEDGED"': "cancel_acknowledged",
+            "has status running": "running",
+            "sortie inattendue": "",
+        }
+        for sortie, attendu in cas.items():
+            with self.subTest(sortie=sortie):
+                self.assertEqual(_parse_status(sortie), attendu)
 
 
 if __name__ == "__main__":

@@ -209,9 +209,16 @@ class KaggleBackend(Backend):
             return BackendStatus.failure("Appel du CLI Kaggle impossible", str(exc))
 
         if completed.returncode != 0:
+            # La cause peut être une clé invalide comme une panne réseau : on
+            # ne préjuge pas, on montre ce que le CLI a dit.
+            detail = (completed.stderr or completed.stdout).strip()
+            indice = (
+                "Vérifie ton nom d'utilisateur et ta clé d'API."
+                if "401" in detail or "403" in detail or "credential" in detail.lower()
+                else "Vérifie ta connexion et tes identifiants."
+            )
             return BackendStatus.failure(
-                "Identification Kaggle refusée",
-                (completed.stderr or completed.stdout).strip()[:200],
+                "Le CLI Kaggle n'a pas abouti", detail[:200], indice
             )
 
         details = [f"Identifié comme {self.username or 'utilisateur Kaggle'}"]
@@ -332,15 +339,25 @@ class KaggleBackend(Backend):
             if state in {"complete", "completed", "success"}:
                 ctx.report(f"Kernel terminé en {elapsed // 60} min {elapsed % 60} s", 0.85)
                 return
-            if state in {"error", "cancelAcknowledged", "cancelled", "failed"}:
+            if state in {
+                "error",
+                "failed",
+                "cancel_requested",
+                "cancel_acknowledged",
+                "cancelled",
+                "canceled",
+            }:
                 raise BackendError(
                     f"Le kernel Kaggle a échoué ({state}). "
                     f"Logs : https://www.kaggle.com/code/{slug}"
                 )
 
-            label = {"queued": "en file d'attente", "running": "en cours d'exécution"}.get(
-                state, state or "en attente"
-            )
+            # `new_script` signifie « poussé, pas encore démarré » : on continue.
+            label = {
+                "queued": "en file d'attente",
+                "running": "en cours d'exécution",
+                "new_script": "pas encore démarré",
+            }.get(state, state or "en attente")
             # Sans progression réelle côté Kaggle, on interpole sur le temps écoulé.
             fraction = 0.15 + 0.65 * min(elapsed / max(deadline - started, 1.0), 1.0)
             ctx.report(f"Kernel {label} ({elapsed // 60} min)", fraction)
@@ -371,10 +388,20 @@ class KaggleBackend(Backend):
 def _parse_status(output: str) -> str:
     """Extrait l'état depuis la sortie de ``kaggle kernels status``.
 
-    Le CLI affiche par exemple : ``has status "running"``.
+    Le format a changé selon les versions du CLI, et les deux circulent :
+
+        ancien  : monpseudo/img23d-worker has status "complete"
+        2.2.x   : monpseudo/img23d-worker has status "KernelWorkerStatus.COMPLETE"
+
+    On accepte les deux et on rend toujours la forme courte en minuscules
+    (``complete``, ``error``, ``cancel_acknowledged``…). Ne pas reconnaître la
+    fin d'exécution coûterait à l'utilisateur toute la durée du délai
+    d'attente, sur un kernel pourtant terminé depuis longtemps.
     """
-    match = re.search(r'status\s+"?([A-Za-z]+)"?', output or "")
-    return match.group(1).lower() if match else ""
+    match = re.search(r'status\s+"?([A-Za-z_.]+)"?', output or "")
+    if not match:
+        return ""
+    return match.group(1).rsplit(".", 1)[-1].lower()
 
 
 def _read_credentials_file() -> dict:
