@@ -11,7 +11,6 @@ désigne dans les préférences, et on dialogue avec lui par stdout.
 from __future__ import annotations
 
 import json
-import os
 import queue
 import shutil
 import subprocess
@@ -20,6 +19,7 @@ import tempfile
 import threading
 from pathlib import Path
 
+from . import hostexec
 from .base import (
     Backend,
     BackendError,
@@ -113,7 +113,9 @@ class LocalBackend(Backend):
             extra = str(self.cfg("extra_args", "") or "").split()
             command.extend(extra)
 
-            env = dict(os.environ)
+            # Purge PYTHONHOME/PYTHONPATH : hérités de Blender, ils
+            # détourneraient l'interpréteur du worker vers celui de Blender.
+            env = hostexec.child_env()
             env.setdefault("PYTHONUNBUFFERED", "1")
             env.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
             cache_dir = str(self.cfg("cache_dir", "") or "")

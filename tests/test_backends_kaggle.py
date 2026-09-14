@@ -396,6 +396,66 @@ class TestEmptyAccount(KaggleCase):
         )
 
 
+class TestHostExecution(KaggleCase):
+    """Les deux pièges d'un sous-processus lancé depuis Blender."""
+
+    def test_python_environment_is_not_inherited(self):
+        """PYTHONHOME hérité de Blender détourne l'interpréteur enfant.
+
+        Le programme démarre puis échoue sur un ModuleNotFoundError, alors
+        qu'il fonctionne parfaitement dans un terminal.
+        """
+        mouchard = r"""
+        import json, os, pathlib, sys
+        pathlib.Path(__file__).with_suffix(".env.json").write_text(json.dumps({
+            k: os.environ.get(k) for k in ("PYTHONHOME", "PYTHONPATH", "PATH")
+        }))
+        print("Configuration values from /x")
+        print("- username: moi")
+        """
+        with unittest.mock.patch.dict(
+            os.environ, {"PYTHONHOME": "/blender/python", "PYTHONPATH": "/blender/modules"}
+        ):
+            self.backend(mouchard).check()
+
+        vu = json.loads((self.directory / "fake_kaggle.env.json").read_text())
+        self.assertIsNone(vu["PYTHONHOME"], "PYTHONHOME doit être purgé")
+        self.assertIsNone(vu["PYTHONPATH"], "PYTHONPATH doit être purgé")
+        self.assertIsNotNone(vu["PATH"], "le reste de l'environnement est conservé")
+
+    def test_a_venv_launcher_is_called_through_its_interpreter(self):
+        """Le lanceur d'un venv dépend de son shebang, pas toujours résolu."""
+        venv = self.directory / "venv" / "bin"
+        venv.mkdir(parents=True)
+        (venv / "kaggle").write_text("#!/introuvable\n")
+        (venv / "python").write_text("#!/bin/sh\nexit 0\n")
+        (venv / "python").chmod(0o755)
+
+        backend = create_backend("KAGGLE", {"cli_path": str(venv / "kaggle")})
+        commande = backend._command(["config", "view"])
+        self.assertEqual(commande[:3], [str(venv / "python"), "-m", "kaggle"])
+        self.assertEqual(commande[3:], ["config", "view"])
+
+    def test_a_bare_command_is_left_alone(self):
+        backend = create_backend("KAGGLE", {"cli_path": "kaggle"})
+        self.assertEqual(backend._command(["config", "view"]), ["kaggle", "config", "view"])
+
+    def test_a_sandbox_is_named_in_the_diagnosis(self):
+        """Sous Flatpak, « module introuvable » a une cause précise et un remède."""
+        casse = r"""
+        import sys
+        sys.stderr.write("ModuleNotFoundError: No module named 'kaggle'\n")
+        sys.exit(1)
+        """
+        with unittest.mock.patch.dict(os.environ, {"FLATPAK_ID": "org.blender.Blender"}):
+            status = self.backend(casse).check()
+
+        self.assertFalse(status.ok)
+        indice = " ".join(status.details)
+        self.assertIn("Flatpak", indice)
+        self.assertIn("flatpak override", indice)
+
+
 class TestKaggleConfiguration(KaggleCase):
     def test_check_without_cli(self):
         status = create_backend("KAGGLE", {"cli_path": "/n/existe/pas"}).check()
