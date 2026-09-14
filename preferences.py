@@ -182,7 +182,9 @@ class Img23DPreferences(AddonPreferences):
         layout.use_property_split = True
         layout.use_property_decorate = False
 
-        layout.prop(self, "backend")
+        entete = layout.box()
+        entete.label(text="Commence par choisir où la génération doit tourner :", icon="PLUGIN")
+        entete.prop(self, "backend")
         layout.prop(self, "verbose")
 
         box = layout.box()
@@ -230,8 +232,26 @@ class Img23DPreferences(AddonPreferences):
         column.prop(self, "cloud_api_base")
         column.prop(self, "cloud_timeout_minutes")
 
-        row = layout.row()
+        # Remplir la section d'un backend ne le sélectionne pas : sans ce
+        # rappel, on teste « Local » en croyant tester ce qu'on vient de saisir.
+        actif = dict((identifier, label) for identifier, label, _ in _BACKEND_ITEMS)
+        box = layout.box()
+        box.label(text=f"Le test portera sur : {actif.get(self.backend, self.backend)}", icon="INFO")
+        row = box.row()
+        row.scale_y = 1.3
         row.operator("img23d.check_backend", icon="CHECKMARK")
+
+        # Le compte rendu doit s'afficher là où l'on a cliqué. Le reléguer au
+        # panneau latéral ne laisse ici qu'un message court sans sa cause.
+        state = context.window_manager.img23d_state
+        if state.check_result:
+            rapport = box.box()
+            rapport.scale_y = 0.85
+            icone = "CHECKMARK" if state.check_ok else "ERROR"
+            for index, ligne in enumerate(state.check_result.split(" · ")):
+                for morceau in _wrap(ligne, 90):
+                    rapport.label(text=morceau, icon=icone if index == 0 else "BLANK1")
+                    icone = "BLANK1"
 
     # -- configuration des backends ---------------------------------------
     def backend_config(self, backend_id: str) -> dict:
@@ -269,6 +289,13 @@ class Img23DPreferences(AddonPreferences):
             },
         }
         return configs.get(backend_id.upper(), {})
+
+
+def _wrap(text: str, width: int) -> list[str]:
+    """Découpe une ligne trop longue : Blender ne replie pas ses libellés."""
+    import textwrap
+
+    return textwrap.wrap(text, width) or [""]
 
 
 def get_preferences(context: bpy.types.Context) -> Img23DPreferences:

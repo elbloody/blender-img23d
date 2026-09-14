@@ -12,6 +12,7 @@ from pathlib import Path
 from bpy.types import Panel
 
 from ..backends import get_backend_class
+from ..ops._job_modal import is_busy
 from ..preferences import resolve_backend_id
 
 CATEGORY = "Image → 3D"
@@ -128,7 +129,7 @@ class IMG23D_PT_generate(Img23DPanel, Panel):
 
         layout.separator()
 
-        if state.running:
+        if is_busy(context):
             box = layout.box()
             box.prop(state, "progress", text=state.status or "Travail en cours…", slider=True)
             row = box.row()

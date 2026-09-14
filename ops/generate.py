@@ -23,7 +23,7 @@ from ..core import scene as scene_utils
 from ..core.imageprep import ImagePrepError, prepare_from_paths
 from ..preferences import get_preferences, resolve_backend_id
 from ..utils import human_duration, tag_redraw
-from ._job_modal import JobModalMixin, cancel_active_job
+from ._job_modal import JobModalMixin, cancel_active_job, is_busy
 
 
 class IMG23D_OT_generate(JobModalMixin, Operator):
@@ -35,7 +35,7 @@ class IMG23D_OT_generate(JobModalMixin, Operator):
 
     @classmethod
     def poll(cls, context):
-        if context.window_manager.img23d_state.running:
+        if is_busy(context):
             cls.poll_message_set("Une génération est déjà en cours")
             return False
         if not context.scene.img23d.enabled_images():
@@ -140,7 +140,7 @@ class IMG23D_OT_cancel(Operator):
 
     @classmethod
     def poll(cls, context):
-        return context.window_manager.img23d_state.running
+        return is_busy(context)
 
     def execute(self, context):
         if not cancel_active_job():

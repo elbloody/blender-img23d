@@ -152,6 +152,11 @@ class FakeBackendServer:
         return f"http://{host}:{port}"
 
 
+def _job_modal():
+    """Le module interne qui suit le travail en cours."""
+    return sys.modules[f"{MODULE}.ops._job_modal"]
+
+
 def clear_scene() -> None:
     for obj in list(bpy.data.objects):
         bpy.data.objects.remove(obj, do_unlink=True)
@@ -433,6 +438,33 @@ class TestOperators(IntegrationCase):
 
         self.assertEqual(bpy.ops.img23d.clear_images(), {"FINISHED"})
         self.assertEqual(len(self.settings.images), 0)
+
+    def test_check_names_the_backend_it_tested(self):
+        """Remplir la section d'un backend ne le sélectionne pas.
+
+        Sans le libellé, l'échec du backend actif se lit comme un échec de
+        celui qu'on vient de configurer, et on cherche au mauvais endroit.
+        """
+        preferences = bpy.context.preferences.addons[MODULE].preferences
+        for backend, attendu in (("LOCAL", "Local"), ("KAGGLE", "Kaggle")):
+            with self.subTest(backend=backend):
+                preferences.backend = backend
+                self.state.running = False
+                _job_modal()._ACTIVE_JOB = None
+                bpy.ops.img23d.check_backend()
+                self.assertIn(attendu, self.state.status)
+
+    def test_a_stale_busy_flag_does_not_freeze_the_buttons(self):
+        """Un opérateur modal privé d'évènements laissait le drapeau levé.
+
+        Les boutons restaient alors grisés définitivement, sans rien pour
+        les débloquer hormis un redémarrage de Blender.
+        """
+        self.state.running = True
+        _job_modal()._ACTIVE_JOB = None
+
+        self.assertTrue(bpy.ops.img23d.check_backend.poll())
+        self.assertFalse(self.state.running, "le drapeau se rétablit de lui-même")
 
     def test_generate_is_blocked_without_images(self):
         self.settings.images.clear()

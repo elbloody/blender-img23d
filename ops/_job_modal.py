@@ -36,6 +36,21 @@ def has_active_job() -> bool:
     return _ACTIVE_JOB is not None
 
 
+def is_busy(context) -> bool:
+    """Un travail est-il réellement en cours ?
+
+    On croise le drapeau d'interface et le travail réel. Si un opérateur modal
+    n'a jamais reçu ses évènements — cela arrive dans certaines fenêtres —, le
+    drapeau resterait levé et griserait les boutons définitivement. Croiser les
+    deux fait que l'interface se rétablit d'elle-même.
+    """
+    flag = context.window_manager.img23d_state.running
+    if flag and _ACTIVE_JOB is None:
+        context.window_manager.img23d_state.running = False
+        return False
+    return flag
+
+
 class JobModalMixin:
     """À mélanger avec ``bpy.types.Operator``.
 
