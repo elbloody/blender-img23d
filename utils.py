@@ -11,7 +11,13 @@ import bpy
 _INVALID_FILENAME = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
 
-def tag_redraw(context: bpy.types.Context, area_types: tuple[str, ...] = ("VIEW_3D",)) -> None:
+#: Zones à redessiner par défaut. « PREFERENCES » est indispensable : le bouton
+#: de diagnostic vit dans cette fenêtre, et sans elle son compte rendu n'y
+#: apparaît jamais — le bouton reste même grisé en apparence après coup.
+_REDRAW_AREAS = ("VIEW_3D", "PREFERENCES")
+
+
+def tag_redraw(context: bpy.types.Context, area_types: tuple[str, ...] = _REDRAW_AREAS) -> None:
     """Force le redessin des zones concernées.
 
     Un opérateur modal qui met à jour une barre de progression doit le demander

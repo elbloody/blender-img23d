@@ -258,9 +258,7 @@ class KaggleBackend(Backend):
             return ""
 
         if completed.returncode == 0:
-            match = re.search(r"^[-\s]*username\s*:\s*(\S+)", completed.stdout, re.MULTILINE)
-            if match and match.group(1).lower() != "none":
-                self._cached_username = match.group(1).strip().lower()
+            self._cached_username = _parse_username(completed.stdout)
         return self._cached_username
 
     # -- diagnostic --------------------------------------------------------
@@ -278,23 +276,29 @@ class KaggleBackend(Backend):
         # retard. On laisse le CLI trancher, et on rapporte ce qu'il dit.
         sources = self._credential_sources()
 
+        # Sonde : `config view`, et non `kernels list`. Lister les notebooks
+        # d'un compte qui n'en a aucun rend « Not found » — un compte neuf
+        # aurait donc été déclaré non identifié. `config view` ne teste que
+        # l'identification, et rend le pseudo au passage.
         try:
             completed = subprocess.run(
-                [self.cli, "kernels", "list", "--mine", "-p", "1"],
+                [self.cli, "config", "view"],
                 capture_output=True,
                 text=True,
-                timeout=90,
+                timeout=120,
                 env=self._env(),
                 check=False,
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
             return BackendStatus.failure("Appel du CLI Kaggle impossible", str(exc))
 
-        if completed.returncode != 0 or "Authentication required" in completed.stdout:
+        sortie = f"{completed.stdout}\n{completed.stderr}"
+        identite = _parse_username(completed.stdout)
+        if completed.returncode != 0 or "Authentication required" in sortie or not identite:
             # La cause peut être une clé invalide comme une panne réseau : on
             # ne préjuge pas, on montre ce que le CLI a dit.
             detail = (completed.stderr or completed.stdout).strip()
-            if not sources or "Authentication required" in detail:
+            if not sources or "Authentication required" in sortie:
                 indice = (
                     f"Aucune identification trouvée. Le plus simple : ouvre un terminal "
                     f"et lance « {self.cli} auth login », puis connecte-toi dans le navigateur."
@@ -307,8 +311,9 @@ class KaggleBackend(Backend):
                 "Le CLI Kaggle n'a pas abouti", detail[:300], indice
             )
 
+        self._cached_username = identite
         details = [
-            f"Identifié comme {self.username or 'utilisateur Kaggle'}",
+            f"Identifié comme {self.username or identite}",
             f"CLI : {self.cli}",
         ]
         if sources:
@@ -504,6 +509,18 @@ _CLI_CANDIDATES = (
     "~/kaggle-env/bin/kaggle",
     "~/.venv/bin/kaggle",
 )
+
+
+def _parse_username(output: str) -> str:
+    """Lit le pseudo dans la sortie de ``kaggle config view``.
+
+    Le CLI affiche ``- username: elbloody``, ou ``- username: None`` quand il
+    n'est identifié par rien.
+    """
+    match = re.search(r"^[-\s]*username\s*:\s*(\S+)", output or "", re.MULTILINE)
+    if not match or match.group(1).lower() == "none":
+        return ""
+    return match.group(1).strip().lower()
 
 
 def _find_cli() -> str:

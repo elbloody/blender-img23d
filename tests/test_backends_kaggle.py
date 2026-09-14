@@ -53,6 +53,10 @@ elif args[:2] == ["kernels", "output"]:
     print("Output downloaded.")
 elif args[:2] == ["kernels", "list"]:
     print("ref  title")
+elif args[:2] == ["config", "view"]:
+    print("Configuration values from /home/moi/.kaggle")
+    print("- username: moi")
+    print("- auth_method: OAUTH")
 else:
     sys.stderr.write("commande inconnue: %s\\n" % args)
     sys.exit(2)
@@ -289,6 +293,10 @@ if args[:2] == ["config", "view"]:
     print("- path: None")
 elif args[:2] == ["kernels", "list"]:
     print("ref  title")
+elif args[:2] == ["config", "view"]:
+    print("Configuration values from /home/moi/.kaggle")
+    print("- username: moi")
+    print("- auth_method: OAUTH")
 elif args[:2] == ["kernels", "push"]:
     print("Kernel version 1 successfully pushed.")
 elif args[:2] == ["kernels", "status"]:
@@ -349,6 +357,43 @@ class TestKaggleApiToken(KaggleCase):
     def test_check_names_the_credential_source(self):
         status = self.token_backend().check()
         self.assertTrue(any("jeton d'API" in detail for detail in status.details))
+
+
+#: Un compte neuf n'a aucun notebook : l'API rend « Not found » sur la liste,
+#: alors que l'identification, elle, fonctionne parfaitement.
+EMPTY_ACCOUNT_CLI = r"""
+import sys
+
+args = sys.argv[1:]
+if args[:2] == ["config", "view"]:
+    print("Configuration values from /home/elbloody/.kaggle")
+    print("- username: elbloody")
+    print("- auth_method: OAUTH")
+elif args[:2] == ["kernels", "list"]:
+    print("Not found")
+    sys.exit(1)
+"""
+
+
+class TestEmptyAccount(KaggleCase):
+    """Le diagnostic ne doit pas dépendre du contenu du compte."""
+
+    def test_a_brand_new_account_is_not_a_failure(self):
+        """Sonder par la liste des notebooks rejetait un compte tout neuf.
+
+        C'est le premier cas que rencontre quelqu'un qui vient de créer son
+        compte : identification parfaite, zéro notebook, « Not found ».
+        """
+        backend = create_backend("KAGGLE", {"cli_path": str(self.cli(EMPTY_ACCOUNT_CLI))})
+        status = backend.check()
+
+        self.assertTrue(status.ok, status.message)
+        self.assertTrue(any("elbloody" in detail for detail in status.details))
+        self.assertNotIn(
+            ["kernels", "list"],
+            [call[:2] for call in self.calls()],
+            "le diagnostic ne doit pas lister les notebooks",
+        )
 
 
 class TestKaggleConfiguration(KaggleCase):
