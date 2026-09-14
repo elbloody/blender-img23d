@@ -149,7 +149,21 @@ class KaggleBackend(Backend):
     # -- configuration -----------------------------------------------------
     @property
     def cli(self) -> str:
-        return str(self.cfg("cli_path", "kaggle") or "kaggle")
+        """Chemin du CLI Kaggle, deviné si l'utilisateur n'a rien imposé.
+
+        Le champ des préférences revient à sa valeur par défaut à chaque
+        réinstallation de l'extension. Or le CLI vit rarement dans le PATH :
+        l'installer proprement sur Fedora ou Ubuntu passe par un
+        environnement dédié, dont le dossier bin n'y est pas. Sans cette
+        recherche, il faut ressaisir le chemin après chaque mise à jour.
+        """
+        configured = str(self.cfg("cli_path", "") or "").strip()
+        if configured and configured != "kaggle":
+            return configured  # chemin explicite : on n'y touche pas
+        if shutil.which("kaggle"):
+            return "kaggle"
+        found = _find_cli()
+        return found or "kaggle"
 
     @property
     def username(self) -> str:
@@ -254,7 +268,9 @@ class KaggleBackend(Backend):
         if shutil.which(self.cli) is None and not Path(self.cli).exists():
             return BackendStatus.failure(
                 f"CLI Kaggle introuvable ({self.cli})",
-                "Installe-le hors de Blender : pip install --user kaggle",
+                "Installe-le hors de Blender, dans un environnement dédié :",
+                "python3 -m venv ~/.img23d-kaggle && ~/.img23d-kaggle/bin/pip install kaggle",
+                "L'extension le trouvera ensuite toute seule.",
             )
 
         # On n'énumère plus les identifiants pour décider d'essayer ou non :
@@ -291,7 +307,10 @@ class KaggleBackend(Backend):
                 "Le CLI Kaggle n'a pas abouti", detail[:300], indice
             )
 
-        details = [f"Identifié comme {self.username or 'utilisateur Kaggle'}"]
+        details = [
+            f"Identifié comme {self.username or 'utilisateur Kaggle'}",
+            f"CLI : {self.cli}",
+        ]
         if sources:
             details.append(f"Source : {sources[0]}")
         try:
@@ -474,6 +493,26 @@ def _parse_status(output: str) -> str:
     if not match:
         return ""
     return match.group(1).rsplit(".", 1)[-1].lower()
+
+
+#: Emplacements habituels d'un CLI Kaggle installé hors du PATH, dans l'ordre
+#: de préférence : d'abord celui que documente le README de l'extension.
+_CLI_CANDIDATES = (
+    "~/.img23d-kaggle/bin/kaggle",
+    "~/.local/bin/kaggle",
+    "~/.local/pipx/venvs/kaggle/bin/kaggle",
+    "~/kaggle-env/bin/kaggle",
+    "~/.venv/bin/kaggle",
+)
+
+
+def _find_cli() -> str:
+    """Cherche le CLI aux emplacements habituels. Rend "" si rien ne convient."""
+    for candidate in _CLI_CANDIDATES:
+        path = Path(candidate).expanduser()
+        if path.is_file() and os.access(path, os.X_OK):
+            return str(path)
+    return ""
 
 
 def _config_dir() -> Path:

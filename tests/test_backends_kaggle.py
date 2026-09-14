@@ -17,6 +17,7 @@ import sys
 import tempfile
 import textwrap
 import unittest
+import unittest.mock
 from pathlib import Path
 
 from .support import RecordingContext
@@ -396,6 +397,33 @@ class TestKaggleConfiguration(KaggleCase):
         self.assertEqual(
             create_backend("KAGGLE", {"username": "Alice"}).slug, "alice/img23d-worker"
         )
+
+    def test_cli_is_found_in_a_dedicated_environment(self):
+        """Le champ des préférences est remis à zéro par chaque réinstallation.
+
+        Sans cette recherche, il faut ressaisir le chemin complet après chaque
+        mise à jour de l'extension — et le CLI n'est presque jamais dans le PATH.
+        """
+        faux_home = self.directory / "maison"
+        binaire = faux_home / ".img23d-kaggle" / "bin" / "kaggle"
+        binaire.parent.mkdir(parents=True)
+        binaire.write_text("#!/bin/sh\nexit 0\n")
+        binaire.chmod(0o755)
+
+        with unittest.mock.patch.dict(os.environ, {"HOME": str(faux_home)}):
+            backend = create_backend("KAGGLE", {})
+            self.assertEqual(backend.cli, str(binaire))
+
+            # Un chemin saisi explicitement reste prioritaire.
+            impose = create_backend("KAGGLE", {"cli_path": "/un/autre/kaggle"})
+            self.assertEqual(impose.cli, "/un/autre/kaggle")
+
+    def test_cli_falls_back_to_the_bare_name(self):
+        """Sans rien trouver, on laisse le PATH décider et le message le dira."""
+        faux_home = self.directory / "maison-vide"
+        faux_home.mkdir()
+        with unittest.mock.patch.dict(os.environ, {"HOME": str(faux_home), "PATH": ""}):
+            self.assertEqual(create_backend("KAGGLE", {}).cli, "kaggle")
 
     def test_status_parsing_accepts_both_cli_formats(self):
         """Les deux formats circulent selon la version du CLI Kaggle.
