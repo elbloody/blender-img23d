@@ -91,8 +91,19 @@ Le CLI Kaggle s'installe **hors** de Blender :
 pip install --user kaggle
 ```
 
-Renseigne ton nom d'utilisateur et ta clé d'API dans les préférences, ou
-dépose simplement `~/.kaggle/kaggle.json` : l'extension le lit s'il existe.
+Kaggle a deux systèmes d'identification en circulation, et l'extension accepte
+les deux :
+
+- **Jeton d'API** (recommandé) — sur kaggle.com ▸ Settings ▸ API Tokens ▸
+  *Generate New Token*. Une seule valeur, commençant par `KGAT_`, à coller dans
+  le champ *Jeton d'API*. Ce jeton porte aussi l'identité de son propriétaire :
+  l'extension interroge le CLI pour retrouver ton pseudo, tu n'as donc rien
+  d'autre à saisir.
+- **Ancien couple utilisateur + clé** — bouton *Create Legacy API Key* sur la
+  même page. Remplis alors *Utilisateur* et *Clé (ancien système)*.
+
+Un `~/.kaggle/kaggle.json` ou `~/.kaggle/access_token` déjà en place est
+également reconnu : dans ce cas, laisse les champs vides.
 
 À chaque génération, l'extension écrit un kernel autonome (images embarquées en
 base64 + paramètres), l'envoie avec `kaggle kernels push`, suit son état, puis

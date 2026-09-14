@@ -258,6 +258,92 @@ class TestKaggleGeneration(KaggleCase):
         self.assertTrue(any("clé d'API" in detail for detail in status.details))
 
 
+#: Faux CLI imitant le nouveau système : le jeton porte l'identité, que le
+#: CLI expose via `config view`, exactement comme le vrai (vérifié dans son
+#: code source : `_authenticate_with_access_token` puis `_introspect_token`).
+TOKEN_CLI = r"""
+import json, os, pathlib, sys
+
+state = pathlib.Path(__file__).with_suffix(".state.json")
+calls = json.loads(state.read_text()) if state.exists() else []
+calls.append(sys.argv[1:])
+state.write_text(json.dumps(calls))
+
+args = sys.argv[1:]
+jeton = os.environ.get("KAGGLE_API_TOKEN", "")
+if not jeton.startswith("KGAT_"):
+    sys.stderr.write("401 Unauthorized\n")
+    sys.exit(1)
+
+if args[:2] == ["config", "view"]:
+    print("Configuration values from /home/moi/.kaggle")
+    print("- username: pseudoduajeton")
+    print("- auth_method: access_token")
+    print("- path: None")
+elif args[:2] == ["kernels", "list"]:
+    print("ref  title")
+elif args[:2] == ["kernels", "push"]:
+    print("Kernel version 1 successfully pushed.")
+elif args[:2] == ["kernels", "status"]:
+    print('%s has status "KernelWorkerStatus.COMPLETE"' % args[2])
+elif args[:2] == ["kernels", "output"]:
+    out = pathlib.Path(args[args.index("-p") + 1])
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "mesh.glb").write_bytes(b"glTF-par-jeton")
+"""
+
+
+class TestKaggleApiToken(KaggleCase):
+    """Le nouveau système de jeton (KGAT_…) qui remplace utilisateur + clé."""
+
+    def token_backend(self, **config):
+        return create_backend(
+            "KAGGLE",
+            {
+                "cli_path": str(self.cli(TOKEN_CLI)),
+                "api_token": "KGAT_0b5f044f5482721caa2e7a0e9ec2f943",
+                "poll_interval": 0.0,
+                **config,
+            },
+        )
+
+    def test_token_is_passed_through_the_environment(self):
+        status = self.token_backend().check()
+        self.assertTrue(status.ok, status.message)
+
+    def test_username_is_discovered_from_the_token(self):
+        """Le jeton porte l'identité : ne pas la redemander à l'utilisateur."""
+        backend = self.token_backend()
+        self.assertEqual(backend.username, "pseudoduajeton")
+        self.assertEqual(backend.slug, "pseudoduajeton/img23d-worker")
+
+    def test_username_lookup_is_cached(self):
+        backend = self.token_backend()
+        for _ in range(4):
+            self.assertEqual(backend.username, "pseudoduajeton")
+        views = [call for call in self.calls() if call[:2] == ["config", "view"]]
+        self.assertEqual(len(views), 1, "un seul appel au CLI, pas un par lecture")
+
+    def test_explicit_username_wins_over_the_token(self):
+        backend = self.token_backend(username="jeChoisis")
+        self.assertEqual(backend.username, "jechoisis")
+        self.assertEqual(self.calls(), [], "aucun appel CLI n'est nécessaire")
+
+    def test_full_generation_with_only_a_token(self):
+        result = self.token_backend().generate(self.request(), RecordingContext())
+        self.assertEqual(result.path.read_bytes(), b"glTF-par-jeton")
+        self.assertEqual(result.meta["kernel"], "pseudoduajeton/img23d-worker")
+
+    def test_an_invalid_token_is_reported(self):
+        status = self.token_backend(api_token="pas-un-jeton").check()
+        self.assertFalse(status.ok)
+        self.assertTrue(any("clé d'API" in detail for detail in status.details))
+
+    def test_check_names_the_credential_source(self):
+        status = self.token_backend().check()
+        self.assertTrue(any("jeton d'API" in detail for detail in status.details))
+
+
 class TestKaggleConfiguration(KaggleCase):
     def test_check_without_cli(self):
         status = create_backend("KAGGLE", {"cli_path": "/n/existe/pas"}).check()

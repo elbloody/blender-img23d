@@ -142,6 +142,10 @@ class KaggleBackend(Backend):
     label = "Kaggle Kernels"
     description = "GPU cloud gratuit (30 h/semaine) via l'API officielle des kernels."
 
+    def __init__(self, config=None) -> None:
+        super().__init__(config)
+        self._cached_username: str | None = None
+
     # -- configuration -----------------------------------------------------
     @property
     def cli(self) -> str:
@@ -153,7 +157,8 @@ class KaggleBackend(Backend):
         if name:
             return name.strip().lower()
         credentials = _read_credentials_file()
-        return str(credentials.get("username", "")).strip().lower()
+        from_file = str(credentials.get("username", "")).strip().lower()
+        return from_file or self._username_from_cli()
 
     @property
     def slug(self) -> str:
@@ -162,7 +167,9 @@ class KaggleBackend(Backend):
             user = self.username
             if not user:
                 raise BackendUnavailable(
-                    "Nom d'utilisateur Kaggle inconnu : renseigne-le, ou installe ~/.kaggle/kaggle.json."
+                    "Nom d'utilisateur Kaggle introuvable. Renseigne-le dans le champ "
+                    "« Utilisateur » des préférences : c'est le pseudo affiché sur ton "
+                    "profil Kaggle."
                 )
             slug = f"{user}/img23d-worker"
         if not SLUG_RE.match(slug):
@@ -172,13 +179,72 @@ class KaggleBackend(Backend):
         return slug
 
     def _env(self) -> dict[str, str]:
+        """Identifiants passés au CLI par l'environnement.
+
+        Kaggle a deux systèmes en circulation, et le CLI essaie le nouveau
+        en premier :
+
+        * le **jeton d'API** (``KGAT_…``), une seule valeur, qui porte aussi
+          l'identité de son propriétaire ;
+        * l'ancien couple **utilisateur + clé**, désormais présenté comme
+          « Legacy API Credentials » sur le site.
+
+        On transmet ce dont on dispose, sans en privilégier un.
+        """
         env = dict(os.environ)
+
+        token = str(self.cfg("api_token", "") or "").strip()
+        if token:
+            env["KAGGLE_API_TOKEN"] = token
+
         username = str(self.cfg("username", "") or "").strip()
         key = str(self.cfg("api_key", "") or "").strip()
         if username and key:
             env["KAGGLE_USERNAME"] = username
             env["KAGGLE_KEY"] = key
         return env
+
+    def _credential_sources(self) -> list[str]:
+        """Les sources d'identification disponibles, pour le diagnostic."""
+        sources = []
+        if str(self.cfg("api_token", "") or "").strip():
+            sources.append("jeton d'API (préférences)")
+        if str(self.cfg("username", "") or "").strip() and str(self.cfg("api_key", "") or "").strip():
+            sources.append("utilisateur + clé (préférences)")
+        directory = _config_dir()
+        if (directory / "kaggle.json").is_file():
+            sources.append(f"{directory / 'kaggle.json'}")
+        if (directory / "access_token").is_file():
+            sources.append(f"{directory / 'access_token'}")
+        return sources
+
+    def _username_from_cli(self) -> str:
+        """Demande son identité au CLI : le jeton d'API la porte déjà.
+
+        Évite à l'utilisateur de retaper un nom que l'outil connaît. Un échec
+        n'est pas fatal : on laisse le champ des préférences prendre le relais.
+        """
+        if self._cached_username is not None:
+            return self._cached_username
+
+        self._cached_username = ""
+        try:
+            completed = subprocess.run(
+                [self.cli, "config", "view"],
+                capture_output=True,
+                text=True,
+                timeout=120,
+                env=self._env(),
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return ""
+
+        if completed.returncode == 0:
+            match = re.search(r"^[-\s]*username\s*:\s*(\S+)", completed.stdout, re.MULTILINE)
+            if match and match.group(1).lower() != "none":
+                self._cached_username = match.group(1).strip().lower()
+        return self._cached_username
 
     # -- diagnostic --------------------------------------------------------
     def check(self) -> BackendStatus:
@@ -188,12 +254,12 @@ class KaggleBackend(Backend):
                 "Installe-le hors de Blender : pip install --user kaggle",
             )
 
-        has_inline = bool(self.cfg("username")) and bool(self.cfg("api_key"))
-        credentials = _read_credentials_file()
-        if not has_inline and not credentials:
+        sources = self._credential_sources()
+        if not sources:
             return BackendStatus.failure(
                 "Aucune identification Kaggle",
-                "Renseigne username + clé API, ou dépose ~/.kaggle/kaggle.json.",
+                "Colle ton jeton d'API (il commence par KGAT_) dans le champ « Jeton d'API ».",
+                "Ou, avec l'ancien système : utilisateur + clé, ou ~/.kaggle/kaggle.json.",
             )
 
         try:
@@ -221,7 +287,10 @@ class KaggleBackend(Backend):
                 "Le CLI Kaggle n'a pas abouti", detail[:200], indice
             )
 
-        details = [f"Identifié comme {self.username or 'utilisateur Kaggle'}"]
+        details = [
+            f"Identifié comme {self.username or 'utilisateur Kaggle'}",
+            f"Source : {sources[0]}",
+        ]
         try:
             details.append(f"Kernel cible : {self.slug}")
         except BackendError as exc:
@@ -404,10 +473,14 @@ def _parse_status(output: str) -> str:
     return match.group(1).rsplit(".", 1)[-1].lower()
 
 
+def _config_dir() -> Path:
+    return Path(os.environ.get("KAGGLE_CONFIG_DIR", Path.home() / ".kaggle"))
+
+
 def _read_credentials_file() -> dict:
-    path = Path(os.environ.get("KAGGLE_CONFIG_DIR", Path.home() / ".kaggle")) / "kaggle.json"
+    """Lit ~/.kaggle/kaggle.json, l'ancien format d'identifiants."""
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        return json.loads((_config_dir() / "kaggle.json").read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {}
 

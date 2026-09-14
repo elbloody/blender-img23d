@@ -101,14 +101,30 @@ class Img23DPreferences(AddonPreferences):
         description="Chemin du CLI Kaggle. Laisse « kaggle » s'il est dans le PATH",
         default="kaggle",
     )
+    kaggle_api_token: StringProperty(
+        name="Jeton d'API",
+        description=(
+            "Le jeton affiché par Kaggle dans Settings ▸ API Tokens. "
+            "Il commence par KGAT_. C'est la seule chose à remplir : il porte "
+            "aussi ton identité"
+        ),
+        subtype="PASSWORD",
+        default="",
+    )
     kaggle_username: StringProperty(
         name="Utilisateur",
-        description="Vide = lecture de ~/.kaggle/kaggle.json",
+        description=(
+            "Ton pseudo Kaggle. Laisse vide avec un jeton d'API : il est "
+            "retrouvé automatiquement. À remplir seulement si le test échoue"
+        ),
         default="",
     )
     kaggle_api_key: StringProperty(
-        name="Clé d'API",
-        description="Vide = lecture de ~/.kaggle/kaggle.json",
+        name="Clé (ancien système)",
+        description=(
+            "L'ancienne clé « Legacy API Credentials », à utiliser avec le champ "
+            "Utilisateur. Inutile si tu as renseigné un jeton d'API"
+        ),
         subtype="PASSWORD",
         default="",
     )
@@ -195,6 +211,12 @@ class Img23DPreferences(AddonPreferences):
         box.label(text="Kaggle Kernels", icon="CONSOLE")
         column = box.column()
         column.prop(self, "kaggle_cli")
+        column.prop(self, "kaggle_api_token")
+        note = box.column(align=True)
+        note.scale_y = 0.8
+        note.label(text="Le jeton se copie sur kaggle.com ▸ Settings ▸ API Tokens", icon="INFO")
+        note.label(text="▸ Generate New Token. Il commence par KGAT_.")
+        column = box.column()
         column.prop(self, "kaggle_username")
         column.prop(self, "kaggle_api_key")
         column.prop(self, "kaggle_kernel_slug")
@@ -232,6 +254,7 @@ class Img23DPreferences(AddonPreferences):
             },
             "KAGGLE": {
                 "cli_path": self.kaggle_cli,
+                "api_token": self.kaggle_api_token,
                 "username": self.kaggle_username,
                 "api_key": self.kaggle_api_key,
                 "kernel_slug": self.kaggle_kernel_slug,
